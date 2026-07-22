@@ -19,6 +19,7 @@ from src.api.middleware import (
     TimingMiddleware,
 )
 from src.api.routes import explain, feedback, health, predict
+from src.cache.redis_client import close_redis, init_redis
 from src.core.config import get_settings
 from src.core.logging import get_logger, setup_logging
 from src.core.monitoring import metrics
@@ -44,6 +45,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.info("Initializing database connections")
         await init_database()
         
+        # Initialize Redis cache
+        logger.info("Initializing Redis cache")
+        await init_redis()
+        
         # Load ML model
         logger.info("Loading ML model", model_version=settings.model_version)
         model_loader = ModelLoader()
@@ -67,6 +72,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         
         # Clean up database connections
         await close_database()
+        
+        # Clean up Redis connections
+        await close_redis()
         
         # Clear model from memory
         if hasattr(app.state, "model_loader"):

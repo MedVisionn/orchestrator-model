@@ -165,8 +165,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symlinks
-RUN ln -s /usr/bin/python3.10 /usr/bin/python
+# Create symlinks for python and pip
+RUN ln -s /usr/bin/python3.10 /usr/bin/python && \
+    ln -s /usr/bin/pip3 /usr/bin/pip
 
 # Create non-root user
 RUN groupadd -r appuser && \
@@ -175,11 +176,11 @@ RUN groupadd -r appuser && \
 WORKDIR /app
 
 # Copy Python packages from builder
-COPY --from=builder --chown=appuser:appuser /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=builder --chown=appuser:appuser /usr/local/bin /usr/local/bin
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Install PyTorch with CUDA support
-RUN pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
+# Install PyTorch with CUDA support (use pip3 explicitly)
+RUN pip3 install --no-cache-dir torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/

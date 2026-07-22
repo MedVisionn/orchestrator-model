@@ -42,9 +42,32 @@ WORKDIR /app
 # Copy dependency files
 COPY requirements.txt ./
 
-# Install Python dependencies
-# Note: torch versions in requirements.txt match CPU optimized versions
-RUN pip install --no-cache-dir -r requirements.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+# Install Python dependencies in stages to avoid conflicts
+# First install PyTorch CPU version
+RUN pip install --no-cache-dir torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
+
+# Then install other dependencies (skip torch lines)
+RUN pip install --no-cache-dir \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    pydantic==2.5.0 \
+    pydantic-settings==2.1.0 \
+    pydicom==2.4.3 \
+    opencv-python-headless==4.8.1.78 \
+    Pillow==10.1.0 \
+    numpy==1.24.3 \
+    pandas==2.1.3 \
+    scikit-learn==1.3.2 \
+    asyncpg==0.29.0 \
+    sqlalchemy==2.0.23 \
+    redis==5.0.1 \
+    prometheus-client==0.19.0 \
+    structlog==23.2.0 \
+    python-multipart==0.0.6 \
+    python-dotenv==1.0.0 \
+    pyyaml==6.0.1 \
+    aiofiles==23.2.1 \
+    httpx==0.25.2
 
 # =============================================================================
 # Stage 2: Runtime

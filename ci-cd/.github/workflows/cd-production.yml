@@ -1,0 +1,439 @@
+name: CD - Production Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version to deploy'
+        required: true
+        type: string
+      deployment_strategy:
+        description: 'Deployment strategy'
+        required: true
+        type: choice
+        options:
+          - blue-green
+          - canary
+          - rolling
+        default: 'canary'
+      canary_percentage:
+        description: 'Canary percentage (if canary strategy)'
+        required: false
+        type: number
+        default: 10
+  
+  release:
+    types: [published]
+
+env:
+  ENVIRONMENT: production
+  KUBERNETES_CLUSTER: medscanai-prod
+  KUBERNETES_NAMESPACE: medscanai
+  DOCKER_REGISTRY: medscanai.azurecr.io
+  IMAGE_NAME: xray-ai-service
+
+jobs:
+  # ============================================================================
+  # Pre-Deployment Validation
+  # ============================================================================
+  pre-deployment-checks:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+    environment: production-approval
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Validate model version
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          # Check if model version exists in registry
+          python scripts/validate_model_version.py \
+            --model-version ${{ github.event.inputs.model_version }} \
+            --environment production
+      
+      - name: Run smoke tests
+        run: |
+          # Run smoke tests against staging environment
+          pytest tests/smoke/ \
+            --base-url https://staging-api.medscanai.com \
+            -v
+      
+      - name: Security scan
+        run: |
+          # Check for security vulnerabilities
+          trivy image ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+      
+      - name: Performance benchmark
+        run: |
+          # Run performance benchmarks
+          python scripts/benchmark.py \
+            --target staging \
+            --duration 300 \
+            --rps 100 \
+            --report benchmark-report.json
+      
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: benchmark-report.json
+  
+  # ============================================================================
+  # Build & Push Docker Image
+  # ============================================================================
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: pre-deployment-checks
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/xray-ai-service
+          file: ./services/xray-ai-service/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+  
+  # ============================================================================
+  # Deploy to Production (Canary)
+  # ============================================================================
+  deploy-canary:
+    name: Deploy Canary
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event.inputs.deployment_strategy == 'canary' || github.event.inputs.deployment_strategy == ''
+    environment:
+      name: production
+      url: https://api.medscanai.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+      
+      - name: Deploy canary ({{ github.event.inputs.canary_percentage }}%)
+        run: |
+          # Update canary deployment
+          kubectl set image deployment/xray-ai-service-canary \
+            xray-ai-service=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          # Scale canary to desired percentage
+          TOTAL_REPLICAS=$(kubectl get deployment xray-ai-service -n ${{ env.KUBERNETES_NAMESPACE }} -o jsonpath='{.spec.replicas}')
+          CANARY_REPLICAS=$(echo "$TOTAL_REPLICAS * ${{ github.event.inputs.canary_percentage }} / 100" | bc)
+          
+          kubectl scale deployment xray-ai-service-canary \
+            --replicas=$CANARY_REPLICAS \
+            -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          # Wait for rollout
+          kubectl rollout status deployment/xray-ai-service-canary \
+            -n ${{ env.KUBERNETES_NAMESPACE }} \
+            --timeout=10m
+      
+      - name: Run canary analysis
+        run: |
+          # Monitor canary metrics for 10 minutes
+          python scripts/canary_analysis.py \
+            --duration 600 \
+            --error-threshold 0.01 \
+            --latency-threshold 2000 \
+            --output canary-analysis.json
+      
+      - name: Promote or rollback
+        run: |
+          CANARY_STATUS=$(jq -r '.status' canary-analysis.json)
+          
+          if [ "$CANARY_STATUS" == "passed" ]; then
+            echo "Canary analysis passed. Promoting to full deployment."
+            kubectl set image deployment/xray-ai-service \
+              xray-ai-service=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+              -n ${{ env.KUBERNETES_NAMESPACE }}
+            
+            kubectl rollout status deployment/xray-ai-service \
+              -n ${{ env.KUBERNETES_NAMESPACE }} \
+              --timeout=15m
+            
+            # Scale down canary
+            kubectl scale deployment xray-ai-service-canary --replicas=0 \
+              -n ${{ env.KUBERNETES_NAMESPACE }}
+          else
+            echo "Canary analysis failed. Rolling back."
+            kubectl rollout undo deployment/xray-ai-service-canary \
+              -n ${{ env.KUBERNETES_NAMESPACE }}
+            exit 1
+          fi
+  
+  # ============================================================================
+  # Deploy to Production (Blue-Green)
+  # ============================================================================
+  deploy-blue-green:
+    name: Deploy Blue-Green
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event.inputs.deployment_strategy == 'blue-green'
+    environment:
+      name: production
+      url: https://api.medscanai.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+      
+      - name: Determine current environment
+        id: current_env
+        run: |
+          CURRENT_ENV=$(kubectl get service xray-ai-service \
+            -n ${{ env.KUBERNETES_NAMESPACE }} \
+            -o jsonpath='{.spec.selector.version}')
+          
+          if [ "$CURRENT_ENV" == "blue" ]; then
+            echo "current=blue" >> $GITHUB_OUTPUT
+            echo "target=green" >> $GITHUB_OUTPUT
+          else
+            echo "current=green" >> $GITHUB_OUTPUT
+            echo "target=blue" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Deploy to ${{ steps.current_env.outputs.target }} environment
+        run: |
+          # Update target deployment
+          kubectl set image deployment/xray-ai-service-${{ steps.current_env.outputs.target }} \
+            xray-ai-service=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          kubectl rollout status deployment/xray-ai-service-${{ steps.current_env.outputs.target }} \
+            -n ${{ env.KUBERNETES_NAMESPACE }} \
+            --timeout=15m
+      
+      - name: Run smoke tests on ${{ steps.current_env.outputs.target }}
+        run: |
+          # Get service IP for target environment
+          TARGET_IP=$(kubectl get service xray-ai-service-${{ steps.current_env.outputs.target }} \
+            -n ${{ env.KUBERNETES_NAMESPACE }} \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          
+          # Run smoke tests
+          pytest tests/smoke/ \
+            --base-url http://$TARGET_IP \
+            -v
+      
+      - name: Switch traffic to ${{ steps.current_env.outputs.target }}
+        run: |
+          # Update service selector
+          kubectl patch service xray-ai-service \
+            -n ${{ env.KUBERNETES_NAMESPACE }} \
+            -p '{"spec":{"selector":{"version":"${{ steps.current_env.outputs.target }}"}}}'
+          
+          echo "Traffic switched to ${{ steps.current_env.outputs.target }} environment"
+      
+      - name: Monitor for 5 minutes
+        run: |
+          sleep 300
+          
+          # Check error rates
+          python scripts/monitor_deployment.py \
+            --duration 300 \
+            --error-threshold 0.01
+      
+      - name: Rollback if needed
+        if: failure()
+        run: |
+          # Switch back to previous environment
+          kubectl patch service xray-ai-service \
+            -n ${{ env.KUBERNETES_NAMESPACE }} \
+            -p '{"spec":{"selector":{"version":"${{ steps.current_env.outputs.current }}"}}}'
+          
+          echo "Rolled back to ${{ steps.current_env.outputs.current }} environment"
+  
+  # ============================================================================
+  # Update Model Registry
+  # ============================================================================
+  update-model-registry:
+    name: Update Model Registry
+    runs-on: ubuntu-latest
+    needs: [deploy-canary, deploy-blue-green]
+    if: always() && (needs.deploy-canary.result == 'success' || needs.deploy-blue-green.result == 'success')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Update model status in MLflow
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          python scripts/update_model_registry.py \
+            --model-version ${{ github.event.inputs.model_version }} \
+            --stage production \
+            --deployed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      
+      - name: Update database
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          psql $DATABASE_URL <<EOF
+            UPDATE model_metadata
+            SET 
+              status = 'production',
+              deployed_at = NOW()
+            WHERE model_version = '${{ github.event.inputs.model_version }}';
+          EOF
+  
+  # ============================================================================
+  # Post-Deployment Tests
+  # ============================================================================
+  post-deployment-tests:
+    name: Post-Deployment Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-canary, deploy-blue-green]
+    if: always() && (needs.deploy-canary.result == 'success' || needs.deploy-blue-green.result == 'success')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run E2E tests
+        run: |
+          pytest tests/e2e/ \
+            --base-url https://api.medscanai.com \
+            --api-key ${{ secrets.PRODUCTION_API_KEY }} \
+            -v
+      
+      - name: Load test
+        run: |
+          # Run load test with K6
+          k6 run scripts/load_test.js \
+            --vus 50 \
+            --duration 5m \
+            --out json=load-test-results.json
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: post-deployment-tests
+          path: |
+            load-test-results.json
+  
+  # ============================================================================
+  # Notification
+  # ============================================================================
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-canary, deploy-blue-green, post-deployment-tests]
+    if: always()
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Production Deployment ${{ needs.deploy-canary.result == 'success' || needs.deploy-blue-green.result == 'success' && 'Successful' || 'Failed' }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment*\nModel Version: ${{ github.event.inputs.model_version }}\nStrategy: ${{ github.event.inputs.deployment_strategy }}\nStatus: ${{ needs.deploy-canary.result == 'success' || needs.deploy-blue-green.result == 'success' && ':white_check_mark: Successful' || ':x: Failed' }}\nDeployed by: ${{ github.actor }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Deployment"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Monitoring"
+                      },
+                      "url": "https://grafana.medscanai.com/d/production"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Send PagerDuty alert if failed
+        if: failure()
+        uses: PagerDuty/pagerduty-change-events-action@v1
+        with:
+          integration-key: ${{ secrets.PAGERDUTY_INTEGRATION_KEY }}
+          summary: "Production deployment failed"
+          severity: "error"
+          source: "GitHub Actions"
+  
+  # ============================================================================
+  # Create Deployment Record
+  # ============================================================================
+  create-deployment-record:
+    name: Create Deployment Record
+    runs-on: ubuntu-latest
+    needs: [deploy-canary, deploy-blue-green]
+    if: always() && (needs.deploy-canary.result == 'success' || needs.deploy-blue-green.result == 'success')
+    steps:
+      - name: Create deployment record
+        run: |
+          curl -X POST https://api.medscanai.com/internal/deployments \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model_version": "${{ github.event.inputs.model_version }}",
+              "deployment_strategy": "${{ github.event.inputs.deployment_strategy }}",
+              "environment": "production",
+              "deployed_by": "${{ github.actor }}",
+              "git_sha": "${{ github.sha }}",
+              "deployment_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+            }'

@@ -1,0 +1,87 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: true
+        type: string
+
+env:
+  PYTHON_VERSION: "3.10"
+  AWS_REGION: "us-east-1"
+  EKS_CLUSTER_NAME: "medscan-production"
+
+jobs:
+  # =============================================================================
+  # Deploy to Production
+  # =============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://api.medscanai.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+      
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f infrastructure/kubernetes/base/
+          kubectl set image deployment/xray-ai-service \
+            xray-service=ghcr.io/${{ github.repository_owner }}/xray-ai-service:${{ github.ref_name }} \
+            -n medscan
+      
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/xray-ai-service -n medscan --timeout=5m
+      
+      - name: Run smoke tests
+        run: |
+          SERVICE_URL=$(kubectl get ingress xray-ai-service-ingress -n medscan -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          curl -f https://${SERVICE_URL}/health || exit 1
+      
+      - name: Notify Slack
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Production deployment ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## X-Ray AI Service ${{ github.ref_name }}
+            
+            ### Changes
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+            
+            ### Deployment
+            - Deployed to production cluster
+            - Image: ghcr.io/${{ github.repository_owner }}/xray-ai-service:${{ github.ref_name }}
+          draft: false
+          prerelease: false

@@ -1,0 +1,675 @@
+openapi: 3.0.3
+info:
+  title: MedScanAI X-Ray AI Service API
+  description: |
+    Enterprise-grade AI-powered chest X-ray analysis service.
+    
+    **Features:**
+    - Multi-label disease detection
+    - Grad-CAM explainability
+    - Confidence calibration
+    - Clinical report generation
+    - Radiologist feedback collection
+    
+    **Security:**
+    - OAuth 2.0 + JWT authentication
+    - HIPAA compliant
+    - Audit logging
+    - Rate limiting
+    
+  version: 1.0.0
+  contact:
+    name: MedScanAI Engineering
+    email: api@medscanai.com
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.medscanai.com/v1/xray
+    description: Production
+  - url: https://staging-api.medscanai.com/v1/xray
+    description: Staging
+  - url: http://localhost:8000/v1/xray
+    description: Development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Inference
+    description: Model inference endpoints
+  - name: Explainability
+    description: Explainability and visualization
+  - name: Feedback
+    description: Radiologist feedback collection
+  - name: Health
+    description: Service health and monitoring
+  - name: Admin
+    description: Administrative endpoints
+
+paths:
+  /predict:
+    post:
+      tags:
+        - Inference
+      summary: Predict diseases from chest X-ray
+      description: |
+        Analyzes a chest X-ray image and returns multi-label disease predictions
+        with confidence scores, explainability, and clinical report.
+        
+        **Input formats:**
+        - DICOM (.dcm)
+        - PNG, JPEG (converted from DICOM)
+        
+        **Processing time:** < 2 seconds (p95)
+        
+      operationId: predictDiseases
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: DICOM or image file
+                patient_id:
+                  type: string
+                  description: Optional patient identifier (hashed)
+                study_instance_uid:
+                  type: string
+                  description: DICOM Study Instance UID
+                metadata:
+                  type: object
+                  description: Additional metadata
+                  properties:
+                    patient_age:
+                      type: integer
+                    patient_sex:
+                      type: string
+                      enum: [M, F, O]
+                    view_position:
+                      type: string
+                      enum: [PA, AP, LAT]
+                return_image:
+                  type: boolean
+                  default: false
+                  description: Return preprocessed image
+                enable_explainability:
+                  type: boolean
+                  default: true
+                  description: Generate Grad-CAM heatmaps
+      responses:
+        '200':
+          description: Successful prediction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionResponse'
+              example:
+                request_id: "req_7f8d9a0b1c2e3f4a"
+                model_version: "v1.2.0"
+                predictions:
+                  pneumonia: 0.87
+                  tuberculosis: 0.12
+                  cardiomegaly: 0.34
+                  pleural_effusion: 0.09
+                  pulmonary_edema: 0.15
+                  fracture: 0.02
+                calibrated_confidence:
+                  pneumonia: 0.82
+                  tuberculosis: 0.08
+                  cardiomegaly: 0.31
+                  pleural_effusion: 0.06
+                  pulmonary_edema: 0.12
+                  fracture: 0.01
+                findings:
+                  - disease: "pneumonia"
+                    probability: 0.82
+                    severity: "moderate"
+                    urgent: true
+                    confidence_level: "high"
+                  - disease: "cardiomegaly"
+                    probability: 0.31
+                    severity: "mild"
+                    urgent: false
+                    confidence_level: "medium"
+                clinical_report:
+                  summary: "Findings consistent with pneumonia. Mild cardiomegaly noted."
+                  recommendations: "Clinical correlation recommended. Consider follow-up imaging."
+                  differential_diagnosis: ["Community-acquired pneumonia", "Aspiration pneumonia"]
+                explainability:
+                  pneumonia:
+                    heatmap_url: "https://s3.../heatmap_pneumonia.png"
+                    attention_regions: [[120, 150, 180, 210]]
+                  cardiomegaly:
+                    heatmap_url: "https://s3.../heatmap_cardio.png"
+                    attention_regions: [[90, 100, 200, 180]]
+                metadata:
+                  study_instance_uid: "1.2.840.113619.2.55.3..."
+                  inference_time_ms: 1234.5
+                  timestamp: "2024-01-15T10:30:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /batch-predict:
+    post:
+      tags:
+        - Inference
+      summary: Batch prediction for multiple X-rays
+      description: Process multiple X-ray images in a single request
+      operationId: batchPredict
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - files
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  maxItems: 100
+      responses:
+        '200':
+          description: Batch prediction results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                  total_images:
+                    type: integer
+                  successful:
+                    type: integer
+                  failed:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PredictionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /explain:
+    post:
+      tags:
+        - Explainability
+      summary: Generate Grad-CAM explainability
+      description: |
+        Generate detailed Grad-CAM visualizations for a previous prediction
+        or a new image.
+      operationId: explainPrediction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_id:
+                  type: string
+                  description: Previous prediction request ID
+                file:
+                  type: string
+                  format: binary
+                  description: Or provide new image
+                diseases:
+                  type: array
+                  items:
+                    type: string
+                  description: Specific diseases to explain
+                overlay:
+                  type: boolean
+                  default: true
+                  description: Overlay heatmap on original image
+      responses:
+        '200':
+          description: Explainability results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplainabilityResponse'
+        '404':
+          description: Request ID not found
+
+  /feedback:
+    post:
+      tags:
+        - Feedback
+      summary: Submit radiologist feedback
+      description: |
+        Submit ground truth labels and feedback for continuous learning.
+        This data will be used to improve future model versions.
+      operationId: submitFeedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '201':
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feedback_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [recorded, flagged_for_training]
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Service health status
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, unhealthy]
+                  version:
+                    type: string
+                  model_version:
+                    type: string
+                  uptime_seconds:
+                    type: integer
+                  dependencies:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        enum: [up, down]
+                      cache:
+                        type: string
+                        enum: [up, down]
+                      model_registry:
+                        type: string
+                        enum: [up, down]
+        '503':
+          description: Service unhealthy
+
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness check
+      description: Check if service is ready to accept traffic
+      operationId: readinessCheck
+      security: []
+      responses:
+        '200':
+          description: Service ready
+        '503':
+          description: Service not ready
+
+  /health/live:
+    get:
+      tags:
+        - Health
+      summary: Liveness check
+      description: Check if service is alive
+      operationId: livenessCheck
+      security: []
+      responses:
+        '200':
+          description: Service alive
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheus metrics
+      description: Prometheus-compatible metrics endpoint
+      operationId: getMetrics
+      security: []
+      responses:
+        '200':
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP inference_requests_total Total number of inference requests
+                # TYPE inference_requests_total counter
+                inference_requests_total{status="success"} 12345
+                inference_requests_total{status="error"} 23
+                
+                # HELP inference_latency_seconds Inference latency
+                # TYPE inference_latency_seconds histogram
+                inference_latency_seconds_bucket{le="0.5"} 8234
+                inference_latency_seconds_bucket{le="1.0"} 11987
+                inference_latency_seconds_bucket{le="2.0"} 12298
+                inference_latency_seconds_bucket{le="+Inf"} 12345
+
+  /model-info:
+    get:
+      tags:
+        - Admin
+      summary: Get model information
+      description: Current model version and metadata
+      operationId: getModelInfo
+      responses:
+        '200':
+          description: Model information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInfo'
+
+  /admin/models:
+    get:
+      tags:
+        - Admin
+      summary: List available models
+      description: List all models in registry
+      operationId: listModels
+      responses:
+        '200':
+          description: List of models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelInfo'
+
+  /admin/models/{version}/deploy:
+    post:
+      tags:
+        - Admin
+      summary: Deploy model version
+      description: Deploy a specific model version to production
+      operationId: deployModel
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                strategy:
+                  type: string
+                  enum: [blue-green, canary, immediate]
+                canary_percentage:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        '200':
+          description: Deployment initiated
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    PredictionResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          description: Unique request identifier
+        model_version:
+          type: string
+          description: Model version used
+        predictions:
+          type: object
+          additionalProperties:
+            type: number
+            format: float
+          description: Raw predictions per disease
+        calibrated_confidence:
+          type: object
+          additionalProperties:
+            type: number
+            format: float
+          description: Calibrated confidence scores
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+        clinical_report:
+          $ref: '#/components/schemas/ClinicalReport'
+        explainability:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Explainability'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+
+    Finding:
+      type: object
+      properties:
+        disease:
+          type: string
+        probability:
+          type: number
+          format: float
+        severity:
+          type: string
+          enum: [mild, moderate, severe, critical]
+        urgent:
+          type: boolean
+        confidence_level:
+          type: string
+          enum: [low, medium, high]
+        icd10_code:
+          type: string
+
+    ClinicalReport:
+      type: object
+      properties:
+        summary:
+          type: string
+        recommendations:
+          type: string
+        differential_diagnosis:
+          type: array
+          items:
+            type: string
+        limitations:
+          type: string
+
+    Explainability:
+      type: object
+      properties:
+        heatmap_url:
+          type: string
+          format: uri
+        heatmap_base64:
+          type: string
+          format: byte
+        attention_regions:
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+            minItems: 4
+            maxItems: 4
+          description: Bounding boxes [x1, y1, x2, y2]
+
+    ExplainabilityResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        explanations:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Explainability'
+
+    FeedbackRequest:
+      type: object
+      required:
+        - request_id
+        - ground_truth
+      properties:
+        request_id:
+          type: string
+        radiologist_id:
+          type: string
+        ground_truth:
+          type: object
+          additionalProperties:
+            type: boolean
+          description: True labels per disease
+        agreement:
+          type: object
+          additionalProperties:
+            type: boolean
+          description: Agreement with AI per disease
+        comments:
+          type: string
+        flag_for_training:
+          type: boolean
+          default: false
+
+    Metadata:
+      type: object
+      properties:
+        study_instance_uid:
+          type: string
+        inference_time_ms:
+          type: number
+          format: float
+        timestamp:
+          type: string
+          format: date-time
+        cache_hit:
+          type: boolean
+
+    ModelInfo:
+      type: object
+      properties:
+        version:
+          type: string
+        status:
+          type: string
+          enum: [development, staging, production, deprecated]
+        architecture:
+          type: string
+        diseases:
+          type: array
+          items:
+            type: string
+        training_dataset:
+          type: string
+        validation_metrics:
+          type: object
+          properties:
+            auc_roc:
+              type: object
+              additionalProperties:
+                type: number
+            accuracy:
+              type: object
+              additionalProperties:
+                type: number
+            f1_score:
+              type: object
+              additionalProperties:
+                type: number
+        deployed_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+        request_id:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "INVALID_INPUT"
+            message: "Invalid DICOM file"
+            details:
+              field: "file"
+              reason: "Not a valid DICOM format"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "UNAUTHORIZED"
+            message: "Invalid or expired token"
+
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "RATE_LIMIT_EXCEEDED"
+            message: "Too many requests. Limit: 100 req/min"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "INTERNAL_ERROR"
+            message: "An unexpected error occurred"
+            request_id: "req_7f8d9a0b1c2e3f4a"

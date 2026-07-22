@@ -1,0 +1,226 @@
+# Disease Configuration
+# Defines clinical thresholds, severity levels, and metadata for each disease
+
+diseases:
+  pneumonia:
+    name: Pneumonia
+    code: J18.9  # ICD-10 code
+    category: infectious
+    clinical_significance: high
+    
+    # Classification thresholds
+    threshold: 0.5
+    confidence_levels:
+      high: 0.8  # >0.8 = High confidence
+      medium: 0.5  # 0.5-0.8 = Medium confidence
+      low: 0.0  # <0.5 = Low confidence / negative
+    
+    # Clinical metadata
+    description: "Inflammation of the lung tissue, typically caused by infection"
+    common_findings:
+      - Consolidation
+      - Ground-glass opacity
+      - Air bronchogram
+    
+    # Reporting
+    urgent: false
+    requires_followup: true
+    typical_followup_days: 7
+    
+    # Explainability
+    roi_focus: ["lung_fields", "lower_lobes"]
+    
+  tuberculosis:
+    name: Tuberculosis
+    code: A15.0  # ICD-10 code
+    category: infectious
+    clinical_significance: critical
+    
+    threshold: 0.3  # Lower threshold due to high clinical risk
+    confidence_levels:
+      high: 0.7
+      medium: 0.3
+      low: 0.0
+    
+    description: "Bacterial infection caused by Mycobacterium tuberculosis"
+    common_findings:
+      - Upper lobe cavitation
+      - Tree-in-bud pattern
+      - Lymphadenopathy
+      - Miliary pattern
+    
+    urgent: true  # Requires immediate attention
+    requires_followup: true
+    typical_followup_days: 1
+    additional_tests_recommended:
+      - Sputum AFB smear
+      - GeneXpert
+      - Tuberculin skin test
+    
+    roi_focus: ["upper_lobes", "apices"]
+    
+  cardiomegaly:
+    name: Cardiomegaly
+    code: I51.7  # ICD-10 code
+    category: cardiac
+    clinical_significance: high
+    
+    threshold: 0.5
+    confidence_levels:
+      high: 0.8
+      medium: 0.5
+      low: 0.0
+    
+    description: "Enlargement of the heart, typically cardiothoracic ratio >0.5"
+    common_findings:
+      - Increased cardiac silhouette
+      - Cardiothoracic ratio >50%
+      - Chamber enlargement
+    
+    urgent: false
+    requires_followup: true
+    typical_followup_days: 14
+    additional_tests_recommended:
+      - Echocardiography
+      - ECG
+      - BNP levels
+    
+    roi_focus: ["cardiac_silhouette", "mediastinum"]
+    
+  pleural_effusion:
+    name: Pleural Effusion
+    code: J90  # ICD-10 code
+    category: pleural
+    clinical_significance: medium
+    
+    threshold: 0.4
+    confidence_levels:
+      high: 0.75
+      medium: 0.4
+      low: 0.0
+    
+    description: "Abnormal accumulation of fluid in the pleural space"
+    common_findings:
+      - Blunting of costophrenic angle
+      - Meniscus sign
+      - Fluid level
+    
+    urgent: false
+    requires_followup: true
+    typical_followup_days: 7
+    additional_tests_recommended:
+      - Ultrasound
+      - Thoracentesis (if large)
+      - CT chest
+    
+    roi_focus: ["costophrenic_angles", "lung_bases"]
+    
+  edema:
+    name: Pulmonary Edema
+    code: J81.0  # ICD-10 code
+    category: vascular
+    clinical_significance: medium
+    
+    threshold: 0.5
+    confidence_levels:
+      high: 0.8
+      medium: 0.5
+      low: 0.0
+    
+    description: "Fluid accumulation in the lung interstitium and alveoli"
+    common_findings:
+      - Kerley B lines
+      - Perihilar haze
+      - Cephalization of vessels
+      - Bat-wing appearance
+    
+    urgent: false
+    requires_followup: true
+    typical_followup_days: 3
+    additional_tests_recommended:
+      - BNP levels
+      - Echocardiography
+      - Chest CT
+    
+    roi_focus: ["perihilar_region", "lung_fields"]
+    
+  fracture:
+    name: Rib Fracture
+    code: S22.3  # ICD-10 code
+    category: trauma
+    clinical_significance: high
+    
+    threshold: 0.3  # Lower threshold to catch subtle fractures
+    confidence_levels:
+      high: 0.75
+      medium: 0.3
+      low: 0.0
+    
+    description: "Break or crack in one or more ribs"
+    common_findings:
+      - Cortical discontinuity
+      - Rib displacement
+      - Associated soft tissue injury
+    
+    urgent: false
+    requires_followup: true
+    typical_followup_days: 14
+    additional_tests_recommended:
+      - Dedicated rib series
+      - CT chest (if multiple/complex fractures)
+      - Pain management evaluation
+    
+    roi_focus: ["ribs", "chest_wall"]
+
+# Global disease configuration
+global:
+  # Confidence calibration
+  calibration_enabled: true
+  calibration_method: temperature_scaling
+  
+  # Multi-label handling
+  allow_multiple_diseases: true
+  max_concurrent_diseases: 3
+  
+  # Uncertainty quantification
+  uncertainty_method: monte_carlo_dropout  # Options: monte_carlo_dropout, ensemble, temperature
+  uncertainty_samples: 30
+  
+  # Clinical decision support
+  enable_differential_diagnosis: true
+  enable_severity_scoring: true
+  
+  # Regulatory compliance
+  fda_cleared: false  # Set to true after 510(k) clearance
+  ce_marked: false
+  intended_use: "Clinical decision support only, not for primary diagnosis"
+
+# Disease groupings for reporting
+disease_groups:
+  infectious:
+    - pneumonia
+    - tuberculosis
+  
+  cardiac:
+    - cardiomegaly
+    - edema
+  
+  thoracic:
+    - pleural_effusion
+    - fracture
+  
+  urgent:
+    - tuberculosis
+  
+  critical_findings:
+    - tuberculosis
+
+# Report templates mapping
+report_templates:
+  pneumonia: pneumonia_template.txt
+  tuberculosis: tuberculosis_template.txt
+  cardiomegaly: cardiomegaly_template.txt
+  pleural_effusion: pleural_effusion_template.txt
+  edema: edema_template.txt
+  fracture: fracture_template.txt
+  normal: normal_template.txt

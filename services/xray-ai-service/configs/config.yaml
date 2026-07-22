@@ -1,0 +1,173 @@
+# X-Ray AI Service Configuration
+# This file provides additional configuration beyond environment variables
+# Environment variables take precedence over these settings
+
+application:
+  name: xray-ai-service
+  version: 1.0.0
+  description: "Enterprise-grade AI-powered chest X-ray analysis"
+  
+server:
+  host: 0.0.0.0
+  port: 8000
+  workers: 4
+  timeout: 60
+  keepalive: 5
+
+model:
+  name: densenet121-res224-all
+  version: 1.0.0
+  framework: pytorch
+  architecture: densenet121
+  input_size: [224, 224]
+  channels: 1
+  
+  # Inference settings
+  device: cpu  # Override with cuda if GPU available
+  batch_size: 1
+  precision: fp32  # Options: fp32, fp16, int8
+  use_onnx: false
+  
+  # Optimization
+  use_amp: false  # Automatic Mixed Precision
+  use_tensorrt: false
+  compile: false  # torch.compile (requires PyTorch 2.0+)
+
+calibration:
+  enabled: true
+  method: temperature_scaling  # Options: temperature_scaling, platt_scaling, isotonic
+  temperature: 1.5
+  
+  # Calibration data paths (for offline calibration)
+  calibration_data_path: null
+  calibration_labels_path: null
+
+explainability:
+  enabled: true
+  method: gradcam  # Options: gradcam, gradcam++, scorecam, integrated_gradients
+  target_layer: features.denseblock4
+  colormap: jet  # Options: jet, viridis, plasma, hot
+  alpha: 0.4  # Heatmap overlay transparency
+
+preprocessing:
+  # DICOM handling
+  dicom_window_center: null  # Auto-detect if null
+  dicom_window_width: null
+  dicom_apply_voi_lut: true
+  
+  # Image preprocessing
+  resize_method: bilinear
+  normalization: z-score  # Options: z-score, min-max, torchxrayvision
+  augmentation_enabled: false
+
+reporting:
+  enabled: true
+  format: fhir  # Options: fhir, hl7, json
+  template_path: configs/report_templates
+  include_confidence: true
+  include_heatmap: true
+  language: en
+
+caching:
+  enabled: true
+  backend: redis
+  ttl: 3600  # seconds
+  key_prefix: xray-ai
+  max_size: 1000  # Maximum cache entries
+
+database:
+  pool_size: 20
+  max_overflow: 10
+  pool_timeout: 30
+  pool_recycle: 3600
+  echo: false  # SQL logging
+
+monitoring:
+  prometheus_enabled: true
+  prometheus_port: 9090
+  
+  # Metrics configuration
+  track_latency: true
+  track_throughput: true
+  track_errors: true
+  track_predictions: true
+  
+  # Health check endpoints
+  liveness_enabled: true
+  readiness_enabled: true
+
+logging:
+  level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: json  # Options: json, console
+  
+  # Log destinations
+  console_enabled: true
+  file_enabled: false
+  file_path: /app/logs/app.log
+  file_max_bytes: 10485760  # 10MB
+  file_backup_count: 5
+  
+  # Structured logging
+  include_timestamp: true
+  include_request_id: true
+  include_user_id: false
+  
+  # PHI redaction (HIPAA compliance)
+  redact_phi: true
+  redact_patterns:
+    - patient_id
+    - patient_name
+    - mrn
+    - accession_number
+
+security:
+  # Authentication
+  auth_enabled: false
+  jwt_secret_key: ${SECRET_KEY}  # Use environment variable
+  jwt_algorithm: HS256
+  jwt_expiry: 3600
+  
+  # Rate limiting
+  rate_limit_enabled: true
+  rate_limit_requests: 100
+  rate_limit_window: 60
+  
+  # CORS
+  cors_enabled: true
+  cors_origins:
+    - "*"  # Restrict in production
+  cors_methods:
+    - GET
+    - POST
+  
+  # Request size limits
+  max_file_size_mb: 10
+  max_request_size_mb: 15
+
+features:
+  # Feature flags for gradual rollout
+  enable_multi_view: false  # Multiple X-ray views
+  enable_comparison: false  # Compare with prior studies
+  enable_batch_inference: false  # Batch processing
+  enable_streaming: false  # Streaming inference
+  enable_webhook: false  # Webhook notifications
+
+mlflow:
+  enabled: false
+  tracking_uri: http://localhost:5000
+  experiment_name: xray-inference
+  run_name: production
+  log_artifacts: true
+  log_params: true
+  log_metrics: true
+
+# Production readiness
+production:
+  enable_profiling: false
+  enable_tracing: false
+  graceful_shutdown_timeout: 30
+  
+  # Circuit breaker
+  circuit_breaker_enabled: false
+  failure_threshold: 5
+  recovery_timeout: 60

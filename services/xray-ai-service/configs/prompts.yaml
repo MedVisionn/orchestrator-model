@@ -1,0 +1,296 @@
+# Report Generation Prompts and Templates
+# Used by the clinical report generation service
+
+# System prompts for report generation
+system_prompts:
+  base: |
+    You are a clinical AI assistant specialized in chest X-ray interpretation.
+    Generate clear, concise, and clinically accurate radiology reports.
+    Follow standard reporting structure: FINDINGS, IMPRESSION, RECOMMENDATIONS.
+    Use professional medical terminology appropriate for radiologists and clinicians.
+  
+  conservative: |
+    Be conservative in your interpretations. When uncertain, suggest correlation
+    with clinical findings and recommend follow-up imaging when appropriate.
+    Never make definitive diagnoses - provide observations and impressions only.
+
+# Report templates by finding type
+templates:
+  normal:
+    findings: |
+      The heart size is within normal limits. The mediastinal contour is unremarkable.
+      The lungs are clear without focal consolidation, pleural effusion, or pneumothorax.
+      No acute osseous abnormality is identified.
+    
+    impression: |
+      No acute cardiopulmonary disease.
+    
+    recommendations: |
+      None. Routine follow-up as clinically indicated.
+  
+  pneumonia:
+    findings: |
+      {lung_location} airspace opacity consistent with pneumonia. 
+      {additional_findings}
+      The cardiac silhouette is within normal limits. No pleural effusion or pneumothorax.
+    
+    impression: |
+      {severity} pneumonia, {lung_location}.
+      {differential}
+    
+    recommendations: |
+      Clinical correlation recommended. Consider appropriate antimicrobial therapy.
+      Follow-up chest radiograph in 4-6 weeks to document resolution.
+  
+  tuberculosis:
+    findings: |
+      {location} cavitary lesion(s) with surrounding parenchymal opacity.
+      {additional_findings}
+      {lymphadenopathy}
+    
+    impression: |
+      Findings highly suspicious for active pulmonary tuberculosis.
+      Differential considerations include fungal infection or necrotizing pneumonia.
+    
+    recommendations: |
+      URGENT: Initiate respiratory isolation precautions.
+      Recommend sputum AFB smear and culture, GeneXpert testing.
+      Immediate infectious disease consultation advised.
+      Notify public health authorities per local guidelines.
+  
+  cardiomegaly:
+    findings: |
+      Cardiomegaly with cardiothoracic ratio of approximately {ctr_ratio}.
+      {chamber_enlargement}
+      The lungs are {lung_status}. {vascular_status}
+    
+    impression: |
+      Cardiomegaly, {severity}.
+      {additional_impressions}
+    
+    recommendations: |
+      Clinical correlation with symptoms recommended.
+      Consider echocardiography for assessment of cardiac function and chamber size.
+      Correlate with ECG and cardiac biomarkers if clinically indicated.
+  
+  pleural_effusion:
+    findings: |
+      {laterality} pleural effusion, {size}.
+      {costophrenic_angle}
+      {additional_findings}
+    
+    impression: |
+      {laterality} pleural effusion, {size}.
+      {etiology_considerations}
+    
+    recommendations: |
+      Consider ultrasound for better characterization and to guide thoracentesis if clinically indicated.
+      Clinical correlation with symptoms and laboratory values recommended.
+      {followup_recommendation}
+  
+  edema:
+    findings: |
+      {distribution} pulmonary edema pattern.
+      Increased interstitial markings with {additional_details}.
+      Cardiac size is {cardiac_status}.
+      {effusion_status}
+    
+    impression: |
+      Pulmonary edema, {severity}.
+      {etiology}
+    
+    recommendations: |
+      Clinical correlation with symptoms and BNP levels recommended.
+      Consider echocardiography to assess cardiac function.
+      Compare with prior studies if available.
+  
+  fracture:
+    findings: |
+      {location} rib fracture identified. {displacement}
+      {number_of_fractures}
+      {associated_findings}
+      No pneumothorax or hemothorax is evident.
+    
+    impression: |
+      {location} rib fracture(s).
+      {complications}
+    
+    recommendations: |
+      Clinical correlation with mechanism of injury and pain assessment.
+      Consider dedicated rib series if multiple fractures suspected.
+      CT chest if concern for underlying lung contusion or if fractures are complex.
+      Adequate pain management is essential.
+
+# Template variables with examples
+template_variables:
+  lung_location:
+    - "Right lower lobe"
+    - "Left upper lobe"
+    - "Bilateral lower lobes"
+    - "Right middle lobe"
+  
+  severity:
+    - "Mild"
+    - "Moderate"
+    - "Severe"
+    - "Extensive"
+  
+  laterality:
+    - "Right-sided"
+    - "Left-sided"
+    - "Bilateral"
+  
+  size:
+    - "small"
+    - "moderate"
+    - "large"
+    - "massive"
+  
+  distribution:
+    - "Perihilar"
+    - "Diffuse"
+    - "Basal predominant"
+    - "Asymmetric"
+
+# Structured report sections
+report_sections:
+  header:
+    - examination: "Chest Radiograph, PA and Lateral"
+    - indication: "{clinical_indication}"
+    - comparison: "{comparison_studies}"
+    - technique: "Standard PA and lateral chest radiographs"
+  
+  body:
+    - findings: "{findings_text}"
+    - impression: "{impression_text}"
+  
+  footer:
+    - recommendations: "{recommendations_text}"
+    - limitations: "This is an AI-generated preliminary report. Final interpretation by a board-certified radiologist is required."
+    - disclaimer: "This AI system is intended as a clinical decision support tool only and does not replace professional medical judgment."
+
+# Confidence level descriptions
+confidence_descriptions:
+  high: "High confidence"
+  medium: "Moderate confidence"
+  low: "Low confidence - uncertain finding"
+  uncertain: "Uncertain - clinical correlation recommended"
+
+# Severity descriptors
+severity_levels:
+  mild:
+    description: "Minimal findings, likely of limited clinical significance"
+    clinical_impact: "low"
+  
+  moderate:
+    description: "Moderate findings requiring clinical attention"
+    clinical_impact: "medium"
+  
+  severe:
+    description: "Significant findings requiring prompt clinical evaluation"
+    clinical_impact: "high"
+  
+  critical:
+    description: "Critical findings requiring immediate attention"
+    clinical_impact: "urgent"
+
+# Differential diagnoses by disease
+differential_diagnoses:
+  pneumonia:
+    - "Community-acquired pneumonia"
+    - "Aspiration pneumonia"
+    - "Viral pneumonia (consider COVID-19)"
+    - "Atypical pneumonia"
+  
+  tuberculosis:
+    - "Active pulmonary tuberculosis"
+    - "Fungal infection (histoplasmosis, coccidioidomycosis)"
+    - "Lung abscess"
+    - "Necrotizing pneumonia"
+  
+  cardiomegaly:
+    - "Dilated cardiomyopathy"
+    - "Hypertensive heart disease"
+    - "Valvular heart disease"
+    - "Pericardial effusion"
+  
+  pleural_effusion:
+    - "Congestive heart failure"
+    - "Pneumonia (parapneumonic effusion)"
+    - "Malignancy"
+    - "Pulmonary embolism"
+  
+  edema:
+    - "Cardiogenic pulmonary edema"
+    - "ARDS"
+    - "Fluid overload"
+    - "Renal failure"
+  
+  fracture:
+    - "Acute traumatic fracture"
+    - "Pathologic fracture"
+    - "Stress fracture"
+
+# Follow-up recommendations
+followup_recommendations:
+  pneumonia:
+    timeframe: "4-6 weeks"
+    modality: "Chest radiograph"
+    reason: "Document resolution"
+  
+  tuberculosis:
+    timeframe: "2-4 weeks"
+    modality: "Chest radiograph"
+    reason: "Assess treatment response"
+    additional: "Monthly imaging during treatment course"
+  
+  cardiomegaly:
+    timeframe: "As clinically indicated"
+    modality: "Echocardiography"
+    reason: "Assess cardiac function"
+  
+  pleural_effusion:
+    timeframe: "1-2 weeks"
+    modality: "Chest radiograph or ultrasound"
+    reason: "Assess interval change"
+  
+  edema:
+    timeframe: "1-3 days"
+    modality: "Chest radiograph"
+    reason: "Assess response to therapy"
+  
+  fracture:
+    timeframe: "2-3 weeks"
+    modality: "Chest radiograph"
+    reason: "Assess healing"
+
+# Critical value alerts
+critical_values:
+  pneumothorax: "Large pneumothorax - consider immediate chest tube placement"
+  tension_pneumothorax: "CRITICAL: Tension pneumothorax - immediate decompression required"
+  massive_hemothorax: "CRITICAL: Large hemothorax - urgent surgical consultation"
+  free_air: "Pneumoperitoneum - urgent surgical evaluation"
+  
+# FHIR mapping for structured reporting
+fhir_mappings:
+  observation_codes:
+    pneumonia: "233604007"  # SNOMED CT
+    tuberculosis: "56717001"
+    cardiomegaly: "8186001"
+    pleural_effusion: "60046008"
+    edema: "19242006"
+    fracture: "262574004"
+  
+  body_sites:
+    right_upper_lobe: "45653009"
+    right_middle_lobe: "68950006"
+    right_lower_lobe: "90572001"
+    left_upper_lobe: "31094006"
+    left_lower_lobe: "90572001"
+
+# Quality metrics for report generation
+quality_metrics:
+  min_report_length: 100  # characters
+  max_report_length: 2000
+  required_sections: ["findings", "impression"]
+  optional_sections: ["recommendations", "comparison"]

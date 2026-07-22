@@ -158,10 +158,11 @@ CMD ["uvicorn", "src.main:app", \
 # =============================================================================
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS gpu-runtime
 
-# Install Python
+# Install Python and dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
     python3-pip \
+    python3.10-dev \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -175,12 +176,31 @@ RUN groupadd -r appuser && \
 
 WORKDIR /app
 
-# Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# Install PyTorch with CUDA support (use pip3 explicitly)
+# Install PyTorch with CUDA support first
 RUN pip3 install --no-cache-dir torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
+
+# Install other dependencies
+RUN pip3 install --no-cache-dir \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 \
+    pydantic==2.5.0 \
+    pydantic-settings==2.1.0 \
+    pydicom==2.4.3 \
+    opencv-python-headless==4.8.1.78 \
+    Pillow==10.1.0 \
+    numpy==1.24.3 \
+    pandas==2.1.3 \
+    scikit-learn==1.3.2 \
+    asyncpg==0.29.0 \
+    sqlalchemy==2.0.23 \
+    redis==5.0.1 \
+    prometheus-client==0.19.0 \
+    structlog==23.2.0 \
+    python-multipart==0.0.6 \
+    python-dotenv==1.0.0 \
+    pyyaml==6.0.1 \
+    aiofiles==23.2.1 \
+    httpx==0.25.2
 
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/

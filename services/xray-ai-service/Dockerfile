@@ -165,9 +165,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symlinks for python and pip
-RUN ln -s /usr/bin/python3.10 /usr/bin/python && \
-    ln -s /usr/bin/pip3 /usr/bin/pip
+# Create symlinks for python and pip (remove existing if present)
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # Create non-root user
 RUN groupadd -r appuser && \

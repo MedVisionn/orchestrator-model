@@ -4,9 +4,9 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# ML/AI
-torch==2.1.1
-torchvision==0.16.1
+# ML/AI - versions will be overridden by Dockerfile
+torch==2.1.0
+torchvision==0.16.0
 torchxrayvision==1.2.0
 
 # Medical Imaging
@@ -15,7 +15,7 @@ monai==1.3.0
 SimpleITK==2.3.1
 
 # Image Processing
-opencv-python==4.8.1.78
+opencv-python-headless==4.8.1.78
 Pillow==10.1.0
 scikit-image==0.22.0
 
@@ -65,8 +65,3 @@ tqdm==4.66.1
 # ONNX (optional, for optimization)
 onnx==1.15.0
 onnxruntime==1.16.3
-
-# Type hints
-mypy==1.7.1
-types-redis==4.6.0.11
-types-PyYAML==6.0.12.12

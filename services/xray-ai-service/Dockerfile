@@ -79,9 +79,8 @@ COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/
 
-# Copy configs directory (create if doesn't exist)
-RUN mkdir -p ./configs
-COPY --chown=appuser:appuser configs/ ./configs/ || true
+# Copy configs directory (now exists in repo)
+COPY --chown=appuser:appuser configs/ ./configs/
 
 # Create necessary directories
 RUN mkdir -p /app/cache /app/logs /app/models /tmp/app && \
@@ -170,9 +169,8 @@ RUN /app/.venv/bin/pip install torch==2.1.0 torchvision==0.16.0 --index-url http
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/
 
-# Copy configs directory (create if doesn't exist)
-RUN mkdir -p ./configs
-COPY --chown=appuser:appuser configs/ ./configs/ || true
+# Copy configs directory (now exists in repo)
+COPY --chown=appuser:appuser configs/ ./configs/
 
 # Create directories
 RUN mkdir -p /app/cache /app/logs /app/models /tmp/app && \

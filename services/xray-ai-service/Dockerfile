@@ -26,11 +26,7 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    POETRY_VERSION=1.7.1 \
-    POETRY_HOME="/opt/poetry" \
-    POETRY_VIRTUALENVS_IN_PROJECT=true \
-    POETRY_NO_INTERACTION=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -40,20 +36,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN curl -sSL https://install.python-poetry.org | python3 - && \
-    ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry
-
 # Set working directory
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml poetry.lock ./
+COPY requirements.txt ./
 
 # Install Python dependencies
-RUN poetry install --no-dev --no-root && \
-    poetry run pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu && \
-    poetry cache clear pypi --all
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
 
 # =============================================================================
 # Stage 2: Runtime
@@ -74,7 +65,8 @@ RUN groupadd -r appuser && \
 WORKDIR /app
 
 # Copy virtual environment from builder
-COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+COPY --from=builder --chown=appuser:appuser /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder --chown=appuser:appuser /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/
@@ -87,8 +79,7 @@ RUN mkdir -p /app/cache /app/logs /app/models /tmp/app && \
     chown -R appuser:appuser /app /tmp/app
 
 # Environment variables
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app:$PYTHONPATH" \
+ENV PYTHONPATH="/app:$PYTHONPATH" \
     ENVIRONMENT="production" \
     LOG_LEVEL="INFO" \
     MODEL_PATH="/app/models/model.pth" \
@@ -160,11 +151,12 @@ RUN groupadd -r appuser && \
 
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+# Copy Python packages from builder
+COPY --from=builder --chown=appuser:appuser /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder --chown=appuser:appuser /usr/local/bin /usr/local/bin
 
 # Install PyTorch with CUDA support
-RUN /app/.venv/bin/pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
+RUN pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/
@@ -176,8 +168,7 @@ COPY --chown=appuser:appuser configs/ ./configs/
 RUN mkdir -p /app/cache /app/logs /app/models /tmp/app && \
     chown -R appuser:appuser /app /tmp/app
 
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app:$PYTHONPATH" \
+ENV PYTHONPATH="/app:$PYTHONPATH" \
     ENVIRONMENT="production" \
     DEVICE="cuda" \
     CUDA_VISIBLE_DEVICES="0"
